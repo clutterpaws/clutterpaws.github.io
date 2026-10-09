@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, shrink-to-fit=yes">
+    <title>Clutterpaws</title>
+    <link rel="icon" type="image/png" href="TemplateData/favicon.png">
+    <style>
+      /* Clutterpaws (v0.42): игра на всё окно, экран загрузки в цветах игры (тёмный фон, пергамент, золото) */
+      html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #241b19; }
+      #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; background: #241b19; outline: none; }
+      #loader { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 22px; background: radial-gradient(ellipse at center, #3a2b25 0%, #241b19 70%); color: #f3ead8;
+        font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; transition: opacity .5s ease; }
+      #loader.done { opacity: 0; pointer-events: none; }
+      #loader img { width: 168px; height: 168px; border-radius: 50%; box-shadow: 0 10px 40px rgba(0,0,0,.45);
+        animation: bob 2.4s ease-in-out infinite; }
+      #loader h1 { margin: 0; font-size: 44px; font-weight: 700; letter-spacing: .5px; color: #f3ead8; }
+      #bar { width: min(420px, 70vw); height: 16px; border-radius: 10px; background: #4a3227; overflow: hidden;
+        box-shadow: inset 0 2px 4px rgba(0,0,0,.4); }
+      #fill { width: 0%; height: 100%; border-radius: 10px; background: linear-gradient(90deg, #d9a441, #f0c56a); transition: width .2s; }
+      #hint { font-size: 15px; opacity: .75; min-height: 20px; text-align: center; padding: 0 20px; }
+      #error { display: none; max-width: 560px; margin: 0 20px; padding: 14px 18px; border-radius: 10px; background: #5a2f2c;
+        color: #f3ead8; font-size: 15px; text-align: center; }
+      @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+      /* телефон (v0.42): после загрузки — «Играть на весь экран» (адресная строка мешает, игра альбомная).
+         v0.56.1: фон почти непрозрачный — сквозь него просвечивало меню игры, и кнопка лежала на логотипе, а текст — на
+         кнопках меню (плейтест 04.10); ссылка «Остаться в окне» — крупнее, под палец */
+      #fs { position: fixed; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+        background: rgba(36, 27, 25, .96); font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color: #f3ead8; }
+      #fs button { font: inherit; font-size: 22px; font-weight: 700; color: #3b2a21; background: #d9a441; border: 0; border-radius: 14px;
+        padding: 16px 34px; box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+      #fs a { font-size: 17px; color: #f3ead8; opacity: .8; text-decoration: underline; padding: 10px 18px; }
+      #fs p { margin: 0; font-size: 15px; opacity: .8; text-align: center; padding: 0 24px; }
+    </style>
+  </head>
+  <body>
+    <canvas id="game" tabindex="-1"></canvas>
+    <div id="loader">
+      <img src="TemplateData/icon.png" alt="">
+      <h1>Clutterpaws</h1>
+      <div id="bar"><div id="fill"></div></div>
+      <div id="hint"></div>
+      <div id="error"></div>
+    </div>
+    <div id="fs">
+      <button id="fs-go"></button>
+      <p id="fs-hint"></p>
+      <a id="fs-skip" href="#"></a>
+    </div>
+    <script>
+      // строки — по языку браузера (как в игре: ru, en, es, de)
+      var lang = (navigator.language || "en").slice(0, 2);
+      var T = {
+        ru: { load: "Загрузка… коты занимают места за столом", err: "Не удалось запустить игру: ", mobile: "На телефоне игра может идти медленнее — удобнее на компьютере.",
+              fs: "Играть на весь экран", fsHint: "Телефон лучше держать горизонтально. Выйти из полного экрана — жестом «назад»; вернуть — в настройках игры.", fsSkip: "Остаться в окне" },
+        en: { load: "Loading… the cats are taking their seats", err: "The game couldn't start: ", mobile: "On phones the game may run slower — it's best on a computer.",
+              fs: "Play fullscreen", fsHint: "Hold your phone sideways. Leave fullscreen with the back gesture; turn it on again in the game settings.", fsSkip: "Stay in the window" },
+        es: { load: "Cargando… los gatos ocupan sus sitios", err: "No se pudo iniciar el juego: ", mobile: "En el móvil el juego puede ir más lento; mejor en un ordenador.",
+              fs: "Jugar en pantalla completa", fsHint: "Pon el móvil en horizontal. Sal con el gesto de volver; vuelve a activarla en los ajustes del juego.", fsSkip: "Seguir en la ventana" },
+        de: { load: "Lädt… die Katzen nehmen Platz", err: "Das Spiel konnte nicht starten: ", mobile: "Auf dem Handy läuft das Spiel evtl. langsamer — am besten am Computer.",
+              fs: "Im Vollbild spielen", fsHint: "Halte das Handy quer. Vollbild verlässt du mit der Zurück-Geste; einschalten geht wieder in den Spieleinstellungen.", fsSkip: "Im Fenster bleiben" }
+      }[lang] || null;
+      if (!T) T = { load: "Loading… the cats are taking their seats", err: "The game couldn't start: ", mobile: "On phones the game may run slower — it's best on a computer.",
+                    fs: "Play fullscreen", fsHint: "Hold your phone sideways. Leave fullscreen with the back gesture; turn it on again in the game settings.", fsSkip: "Stay in the window" };
+      var mobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      document.getElementById("hint").textContent = T.load + (mobile ? " · " + T.mobile : "");
+
+      var canvas = document.getElementById("game");
+      var config = {
+        arguments: [],
+        dataUrl: "Build/64a7c969f3f1b60542d545becc3db99b.data.unityweb",
+        frameworkUrl: "Build/a850ae7b7f7a4a5b218007ce76bf9d1e.framework.js.unityweb",
+        codeUrl: "Build/0df112cbad042999601ba4b2ba0af21d.wasm.unityweb",
+        streamingAssetsUrl: "StreamingAssets",
+        companyName: "Clutterpaws",
+        productName: "Clutterpaws",
+        productVersion: "0.61.0",
+        autoSyncPersistentDataPath: true,
+        // полная плотность экрана (v0.43, владелец: «на телефоне тексты и меню смазаны» — было ≤ ×1.5, интерфейс растягивался
+        // вдвое); цену 3D держит масштаб рендера в настройках графики, потолок ×3 — для редких сверхплотных экранов
+        devicePixelRatio: Math.min(window.devicePixelRatio || 1, 3),
+        showBanner: function (msg, type) { if (type === "error") showError(msg); }
+      };
+
+      // полный экран: только из нажатия игрока; на телефоне — ещё и горизонтально
+      function goFullscreen() {
+        var el = document.documentElement, req = el.requestFullscreen || el.webkitRequestFullscreen;
+        if (!req) return;
+        try {
+          var p = req.call(el, { navigationUI: "hide" });
+          var lock = function () { if (screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(function () {}); };
+          if (p && p.then) p.then(lock).catch(function () {}); else lock();
+        } catch (e) { }
+      }
+      function offerFullscreen() {
+        var el = document.documentElement;
+        if (!mobile || !(el.requestFullscreen || el.webkitRequestFullscreen) || document.fullscreenElement) return;
+        var fs = document.getElementById("fs");
+        document.getElementById("fs-go").textContent = T.fs;
+        document.getElementById("fs-hint").textContent = T.fsHint;
+        document.getElementById("fs-skip").textContent = T.fsSkip;
+        document.getElementById("fs-go").onclick = function () { goFullscreen(); fs.style.display = "none"; canvas.focus(); };
+        document.getElementById("fs-skip").onclick = function (e) { e.preventDefault(); fs.style.display = "none"; canvas.focus(); };
+        fs.style.display = "flex";
+      }
+
+      function showError(msg) {
+        var e = document.getElementById("error");
+        e.textContent = T.err + msg;
+        e.style.display = "block";
+      }
+
+      var script = document.createElement("script");
+      script.src = "Build/068dbd8cd6475bd5e81db0d078335895.loader.js";
+      script.onload = function () {
+        createUnityInstance(canvas, config, function (progress) {
+          document.getElementById("fill").style.width = (100 * progress) + "%";
+        }).then(function () {
+          document.getElementById("loader").className = "done";
+          canvas.focus();
+          offerFullscreen();
+          setTimeout(function () { document.getElementById("loader").style.display = "none"; }, 600);
+        }).catch(function (message) { showError(message); });
+      };
+      script.onerror = function () { showError("loader"); };
+      document.body.appendChild(script);
+    </script>
+  </body>
+</html>
